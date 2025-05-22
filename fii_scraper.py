@@ -1,25 +1,57 @@
-# fii_scraper.py
-import pandas as pd
 import requests
-from bs4 import BeautifulSoup
+import pandas as pd
+from datetime import datetime
 
-def fetch_top_fii_stocks():
-    url = "https://trendlyne.com/fundamentals/fii-dii-activity/"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
-        table = soup.find("table")
-        df = pd.read_html(str(table))[0]
-        df.columns = df.columns.droplevel(0) if isinstance(df.columns, pd.MultiIndex) else df.columns
-        df = df.rename(columns={
-            'Company Name': 'Company',
-            'FII Holdings (%)': 'FII Holdings (%)',
-            'Change in FII (%)': 'Change (%)'
-        })
-        df = df[['Company', 'FII Holdings (%)', 'Change (%)']]
-        df = df[df['Change (%)'] > 0].sort_values(by='Change (%)', ascending=False)
-        return df.head(10)
-    except Exception as e:
-        print(f"Error fetching FII data: {e}")
-        return pd.DataFrame(columns=['Company', 'FII Holdings (%)', 'Change (%)'])
+def get_nse_session():
+    headers = {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.nseindia.com/market-data/equity-derivatives-bulk-block-deals',
+        'Origin': 'https://www.nseindia.com',
+    }
+    session = requests.Session()
+    session.get('https://www.nseindia.com', headers=headers)
+    return session, headers
+
+def fetch_live_bulk_deals(date_str):
+    session, headers = get_nse_session()
+    url = f'https://www.nseindia.com/api/equity-bulk-deals?date={date_str}'
+    response = session.get(url, headers=headers)
+    if response.status_code == 200:
+        data_json = response.json()
+        df = pd.DataFrame(data_json['data'])
+        return df
+    else:
+        print(f"Error fetching data: HTTP {response.status_code}")
+        return pd.DataFrame()
+
+def filter_fii_transactions(df):
+    fii_keywords = ['FII', 'Foreign Institutional Investor', 'Foreign Portfolio Investor']
+    mask = df['clientName'].str.contains('|'.join(fii_keywords), case=False, na=False)
+    return df[mask]
+
+def aggregate_fii_activity(df):
+    df['quantity'] = pd.to_numeric(df['quantity'], errors='coerce').fillna(0)
+    df['buySell'] = df['buySell'].str.upper()
+    df['netQty'] = df.apply(lambda x: x['quantity'] if x['buySell']=='BUY' else -x['quantity'], axis=1)
+    agg = df.groupby('securityName')['netQty'].sum().reset_index()
+    agg = agg.sort_values(by='netQty', ascending=False)
+    return agg
+
+def get_fii_portfolio():
+    date_str = datetime.today().strftime('%d-%m-%Y')
+    df_bulk = fetch_live_bulk_deals(date_str)
+    if df_bulk.empty:
+        print("No bulk deal data available today.")
+        return pd.DataFrame()
+    df_fii = filter_fii_transactions(df_bulk)
+    if df_fii.empty:
+        print("No FII transactions today.")
+        return pd.DataFrame()
+    agg_fii = aggregate_fii_activity(df_fii)
+    return agg_fii
+
+if __name__ == "__main__":
+    portfolio_df = get_fii_portfolio()
+    print(portfolio_df.head(10))
