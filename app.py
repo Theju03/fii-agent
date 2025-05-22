@@ -1,24 +1,15 @@
-# app.py
 import streamlit as st
-import pandas as pd
-from fii_scraper import fetch_top_fii_stocks
+from fii_scraper import get_fii_portfolio  # Import the function you just made
 
-st.set_page_config(page_title="FII-Inspired Portfolio", layout="wide")
-st.title("📈 FII-Inspired Investment Dashboard")
+def main():
+    st.title("📈 Live FII-Inspired Investment Dashboard")
 
-st.markdown("This dashboard shows Indian stocks where FIIs have recently increased their stake.")
+    portfolio_df = get_fii_portfolio()
+    if portfolio_df.empty:
+        st.info("No FII portfolio data available for today. Please try again later.")
+    else:
+        st.write("Top Stocks with FII Stake Increase Today:")
+        st.dataframe(portfolio_df.head(10))
 
-with st.spinner("Fetching FII data..."):
-    df = fetch_top_fii_stocks()
-
-if df.empty:
-    st.warning("Could not load data. Please try again later.")
-else:
-    st.dataframe(df, use_container_width=True)
-    st.subheader("📊 Recommended Portfolio (Top 10)")
-    st.write("Equally weighted portfolio of top 10 FII-favored companies:")
-    df['Weight (%)'] = round(100 / len(df), 2)
-    st.dataframe(df[['Company', 'FII Holdings (%)', 'Change (%)', 'Weight (%)']], use_container_width=True)
-
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Download CSV", csv, "fii_portfolio.csv", "text/csv")
+if __name__ == "__main__":
+    main()
